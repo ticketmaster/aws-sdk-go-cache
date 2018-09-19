@@ -22,5 +22,9 @@ func (t *Data) RequestDuration() time.Duration {
 
 // GetData returns the timing data from the provided context
 func GetData(ctx context.Context) *Data {
+	d := ctx.Value(timingContextKey)
+	if d == nil {
+		return nil
+	}
 	return ctx.Value(timingContextKey).(*Data)
 }
