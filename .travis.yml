@@ -8,11 +8,6 @@ matrix:
   include:
   - os: linux
     sudo: required
-    go: 1.5.x
-    # Use Go 1.5's vendoring experiment for 1.5 tests.
-    env: GO15VENDOREXPERIMENT=1
-  - os: linux
-    sudo: required
     go: 1.6.x
   - os: linux
     sudo: required
@@ -45,7 +40,13 @@ install:
 
 script:
 - make lint
+- go test -v -race -tags testcgo ./... -covermode=atomic -coverprofile=profile.cov
+
+after_success:
+- go get -v github.com/mattn/goveralls
+- goveralls -coverprofile=profile.cov -service=travis-ci
 
 branches:
   only:
   - master
+
