@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 
@@ -17,13 +18,21 @@ const pageSize = 10
 
 func main() {
 	s := session.Must(session.NewSession())
+	// Adds timing measurements to session
 	timing.AddTiming(s)
-	cache.AddCaching(s)
 
+	// Adds caching to session
+	cacheCfg := cache.NewConfig(0 * time.Second)
+	cache.AddCaching(s, cacheCfg)
+
+	// Set a custom TTL for ec2 DescribeTags
+	cacheCfg.SetCacheTTL("ec2", "DescribeTags", 10*time.Second)
+
+	// Add a handler to print the cache status and how long the request took
 	s.Handlers.Complete.PushFront(func(r *request.Request) {
 		ctx := r.HTTPRequest.Context()
 		td := timing.GetData(ctx)
-		// spew.Dump(td)
+
 		fmt.Printf("cached [%v] service [%s.%s] duration [%v]\n",
 			cache.IsCacheHit(ctx),
 			r.ClientInfo.ServiceName,
