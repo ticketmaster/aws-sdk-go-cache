@@ -36,7 +36,7 @@ func (c *Config) get(serviceName, operationName string, params interface{}) *cca
 }
 
 func (c *Config) set(serviceName, operationName string, params interface{}, object *cacheObject) {
-	if !strings.HasPrefix(operationName, "Describe") {
+	if !cachable(operationName) {
 		return
 	}
 
@@ -61,4 +61,11 @@ func (c *Config) serviceOperation(serviceName, operationName string) string {
 
 func (c *Config) cacheKey(serviceName, operationName string, params interface{}) string {
 	return c.serviceOperation(serviceName, operationName) + "." + awsutil.Prettify(params)
+}
+
+func cachable(operationName string) bool {
+	if !(strings.HasPrefix(operationName, "Describe") || strings.HasPrefix(operationName, "List")) {
+		return false
+	}
+	return true
 }
