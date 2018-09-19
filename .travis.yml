@@ -7,13 +7,6 @@ matrix:
   - os: linux
     sudo: required
     go: 1.10.x
-  - os: linux
-    sudo: required
-    go: tip
-  - os: osx
-    go: 1.10.x
-  - os: osx
-    go: tip
 
 install:
 - make get-deps
