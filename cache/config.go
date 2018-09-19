@@ -64,7 +64,9 @@ func (c *Config) cacheKey(serviceName, operationName string, params interface{})
 }
 
 func cachable(operationName string) bool {
-	if !(strings.HasPrefix(operationName, "Describe") || strings.HasPrefix(operationName, "List")) {
+	if !(strings.HasPrefix(operationName, "Describe") ||
+		strings.HasPrefix(operationName, "List") ||
+		strings.HasPrefix(operationName, "Get")) {
 		return false
 	}
 	return true
