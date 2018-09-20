@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/aws/aws-sdk-go/aws/awsutil"
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -16,6 +17,7 @@ type Config struct {
 	DefaultTTL  time.Duration
 	specificTTL map[string]time.Duration
 	caches      map[string]*ccache.Cache
+	metrics     *cacheCollector
 }
 
 const cacheNameFormat = "%v.%v"
@@ -27,6 +29,11 @@ func NewConfig(defaultTTL time.Duration) *Config {
 		specificTTL: make(map[string]time.Duration),
 		caches:      make(map[string]*ccache.Cache),
 	}
+}
+
+func (c *Config) NewCacheCollector(namespace string) prometheus.Collector {
+	c.metrics = newCacheCollector(namespace)
+	return c.metrics
 }
 
 // SetCacheTTL sets a unique TTL for the service and operation
@@ -48,6 +55,8 @@ func (c *Config) FlushCache(serviceName string) {
 	for cacheName := range c.caches {
 		if strings.HasPrefix(cacheName, serviceName) {
 			c.caches[cacheName] = ccache.New(ccache.Configure())
+			n := strings.Split(cacheName, ".")
+			c.IncFlush(n[0], n[1])
 		}
 	}
 }
@@ -99,4 +108,22 @@ func isCachable(operationName string) bool {
 		return false
 	}
 	return true
+}
+
+func (c *Config) IncHit(r *request.Request) {
+	if c.metrics != nil {
+		c.metrics.IncHit(r)
+	}
+}
+
+func (c *Config) IncMiss(r *request.Request) {
+	if c.metrics != nil {
+		c.metrics.IncMiss(r)
+	}
+}
+
+func (c *Config) IncFlush(serviceName, operationName string) {
+	if c.metrics != nil {
+		c.metrics.IncFlush(serviceName, operationName)
+	}
 }
