@@ -41,22 +41,13 @@ func (c *Config) SetCacheTTL(serviceName, operationName string, ttl time.Duratio
 	c.specificTTL[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = ttl
 }
 
-func (c *Config) getCache(r *request.Request) *ccache.Cache {
-	_, ok := c.caches[cacheName(r)]
-	if !ok {
-		cache := ccache.New(ccache.Configure())
-		c.caches[cacheName(r)] = cache
-	}
-	return c.caches[cacheName(r)]
-}
-
 // FlushCache flushes all caches for a service
 func (c *Config) FlushCache(serviceName string) {
 	for cacheName := range c.caches {
 		if strings.HasPrefix(cacheName, serviceName) {
 			c.caches[cacheName] = ccache.New(ccache.Configure())
 			n := strings.Split(cacheName, ".")
-			c.IncFlush(n[0], n[1])
+			c.incFlush(n[0], n[1])
 		}
 	}
 }
@@ -73,6 +64,15 @@ func (c *Config) flushCaches(r *request.Request) {
 	if strings.Contains(opName, "Tags") {
 		c.FlushCache(resourcegroupstaggingapi.ServiceName)
 	}
+}
+
+func (c *Config) getCache(r *request.Request) *ccache.Cache {
+	_, ok := c.caches[cacheName(r)]
+	if !ok {
+		cache := ccache.New(ccache.Configure())
+		c.caches[cacheName(r)] = cache
+	}
+	return c.caches[cacheName(r)]
 }
 
 func (c *Config) get(r *request.Request) *ccache.Item {
@@ -110,20 +110,20 @@ func isCachable(operationName string) bool {
 	return true
 }
 
-func (c *Config) IncHit(r *request.Request) {
+func (c *Config) incHit(r *request.Request) {
 	if c.metrics != nil {
-		c.metrics.IncHit(r)
+		c.metrics.incHit(r)
 	}
 }
 
-func (c *Config) IncMiss(r *request.Request) {
+func (c *Config) incMiss(r *request.Request) {
 	if c.metrics != nil {
-		c.metrics.IncMiss(r)
+		c.metrics.incMiss(r)
 	}
 }
 
-func (c *Config) IncFlush(serviceName, operationName string) {
+func (c *Config) incFlush(serviceName, operationName string) {
 	if c.metrics != nil {
-		c.metrics.IncFlush(serviceName, operationName)
+		c.metrics.incFlush(serviceName, operationName)
 	}
 }

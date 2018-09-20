@@ -44,14 +44,14 @@ func (c cacheCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.flushCounter.Describe(ch)
 }
 
-func (c *cacheCollector) IncHit(r *request.Request) {
+func (c *cacheCollector) incHit(r *request.Request) {
 	c.hitCounter.With(prometheus.Labels{"service": r.ClientInfo.ServiceName, "operation": r.Operation.Name, "action": "hit"}).Inc()
 }
 
-func (c *cacheCollector) IncMiss(r *request.Request) {
+func (c *cacheCollector) incMiss(r *request.Request) {
 	c.hitCounter.With(prometheus.Labels{"service": r.ClientInfo.ServiceName, "operation": r.Operation.Name, "action": "miss"}).Inc()
 }
 
-func (c *cacheCollector) IncFlush(serviceName, operationName string) {
+func (c *cacheCollector) incFlush(serviceName, operationName string) {
 	c.flushCounter.With(prometheus.Labels{"service": serviceName, "operation": operationName}).Inc()
 }
