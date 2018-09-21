@@ -21,7 +21,8 @@ type cacheObj struct {
 }
 
 func (c *cacheObj) copy() *http.Response {
-	r := c.r
+	r := &http.Response{}
+	*r = *c.r
 	r.Body = ioutil.NopCloser(bytes.NewBuffer(c.content))
 	return r
 }
