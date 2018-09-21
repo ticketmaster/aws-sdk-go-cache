@@ -3,6 +3,7 @@ package cache
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
@@ -16,7 +17,7 @@ import (
 type Config struct {
 	DefaultTTL  time.Duration
 	specificTTL map[string]time.Duration
-	caches      map[string]*ccache.Cache
+	caches      *sync.Map
 	metrics     *cacheCollector
 }
 
@@ -27,7 +28,7 @@ func NewConfig(defaultTTL time.Duration) *Config {
 	return &Config{
 		DefaultTTL:  defaultTTL,
 		specificTTL: make(map[string]time.Duration),
-		caches:      make(map[string]*ccache.Cache),
+		caches:      &sync.Map{},
 	}
 }
 
@@ -43,13 +44,15 @@ func (c *Config) SetCacheTTL(serviceName, operationName string, ttl time.Duratio
 
 // FlushCache flushes all caches for a service
 func (c *Config) FlushCache(serviceName string) {
-	for cacheName := range c.caches {
+	c.caches.Range(func(k, v interface{}) bool {
+		cacheName := k.(string)
 		if strings.HasPrefix(cacheName, serviceName) {
-			c.caches[cacheName] = ccache.New(ccache.Configure())
+			c.caches.Store(cacheName, ccache.New(ccache.Configure()))
 			n := strings.Split(cacheName, ".")
 			c.incFlush(n[0], n[1])
 		}
-	}
+		return true
+	})
 }
 
 func (c *Config) flushCaches(r *request.Request) {
@@ -67,12 +70,13 @@ func (c *Config) flushCaches(r *request.Request) {
 }
 
 func (c *Config) getCache(r *request.Request) *ccache.Cache {
-	_, ok := c.caches[cacheName(r)]
+	_, ok := c.caches.Load(cacheName(r))
 	if !ok {
 		cache := ccache.New(ccache.Configure())
-		c.caches[cacheName(r)] = cache
+		c.caches.Store(cacheName(r), cache)
 	}
-	return c.caches[cacheName(r)]
+	o, _ := c.caches.Load(cacheName(r))
+	return o.(*ccache.Cache)
 }
 
 func (c *Config) get(r *request.Request) *ccache.Item {
