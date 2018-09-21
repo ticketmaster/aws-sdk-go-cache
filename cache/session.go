@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/golang/glog"
 )
 
 type contextKeyType int
@@ -61,7 +62,11 @@ func AddCaching(s *session.Session, cacheConfig *Config) {
 		if !IsCacheHit(r.HTTPRequest.Context()) {
 			cacheConfig.incMiss(r)
 
-			content, _ := ioutil.ReadAll(r.HTTPResponse.Body)
+			content, err := ioutil.ReadAll(r.HTTPResponse.Body)
+			if err != nil {
+				glog.Errorf("Error fetching response body: %v", err)
+				return
+			}
 			r.HTTPResponse.Body = ioutil.NopCloser(bytes.NewBuffer(content))
 
 			cacheConfig.set(r, &cacheObj{
