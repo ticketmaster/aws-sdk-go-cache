@@ -1,7 +1,10 @@
 package cache
 
 import (
+	"bytes"
 	"context"
+	"io/ioutil"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -10,6 +13,17 @@ import (
 type contextKeyType int
 
 var cacheHitContextKey = new(contextKeyType)
+
+type cacheObj struct {
+	r       *http.Response
+	content []byte
+}
+
+func (c *cacheObj) copy() *http.Response {
+	r := c.r
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(c.content))
+	return r
+}
 
 // IsCacheHit returns true if the context was used for a cached API request
 func IsCacheHit(ctx context.Context) bool {
@@ -29,35 +43,31 @@ func AddCaching(s *session.Session, cacheConfig *Config) {
 
 		if i != nil && !i.Expired() {
 			cacheConfig.incHit(r)
+
+			// Copy the cached response to this requests response
+			r.HTTPResponse = i.Value().(*cacheObj).copy()
+
 			// Add cache hit marker to the request context
 			r.HTTPRequest = r.HTTPRequest.WithContext(context.WithValue(r.HTTPRequest.Context(), cacheHitContextKey, true))
-
-			// Set Data to cached value
-			r.Data = i.Value()
 		}
 	})
 
-	// short circuit Send Handlers
+	// Add an empty handler to the top of Send and short circuit the rest on a cache hit
 	s.Handlers.Send.PushFront(func(r *request.Request) {})
 	s.Handlers.Send.AfterEachFn = shortCircuitRequestHandler
 
-	// short circuit ValidateResponse Handlers
-	s.Handlers.ValidateResponse.PushFront(func(r *request.Request) {})
-	s.Handlers.ValidateResponse.AfterEachFn = shortCircuitRequestHandler
-
-	// short circuit UnmarshalMeta Handlers
-	s.Handlers.UnmarshalMeta.PushFront(func(r *request.Request) {})
-	s.Handlers.UnmarshalMeta.AfterEachFn = shortCircuitRequestHandler
-
-	// short circuit Unmarshal Handlers
-	s.Handlers.Unmarshal.PushFront(func(r *request.Request) {})
-	s.Handlers.Unmarshal.AfterEachFn = shortCircuitRequestHandler
-
-	s.Handlers.Complete.PushBack(func(r *request.Request) {
-		// Cache the processed Data
+	// ValidateResponse is the first handler after Send, cache the response if this was not a cached hit
+	s.Handlers.ValidateResponse.PushFront(func(r *request.Request) {
 		if !IsCacheHit(r.HTTPRequest.Context()) {
 			cacheConfig.incMiss(r)
-			cacheConfig.set(r, r.Data)
+
+			content, _ := ioutil.ReadAll(r.HTTPResponse.Body)
+			r.HTTPResponse.Body = ioutil.NopCloser(bytes.NewBuffer(content))
+
+			cacheConfig.set(r, &cacheObj{
+				r:       r.HTTPResponse,
+				content: content,
+			})
 		}
 	})
 }
