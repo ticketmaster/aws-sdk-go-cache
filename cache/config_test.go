@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
+
 	"github.com/aws/aws-sdk-go/aws/credentials"
 
 	"github.com/aws/aws-sdk-go/aws/endpoints"
@@ -13,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elbv2"
 )
 
 func Test_Cachable(t *testing.T) {
@@ -31,7 +34,7 @@ func Test_Cachable(t *testing.T) {
 }
 
 var myCustomResolver = func(service, region string, optFns ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
-	if service == endpoints.Ec2metadataServiceID {
+	if service == endpoints.ElasticloadbalancingServiceID {
 		return endpoints.ResolvedEndpoint{
 			URL: server.URL,
 		}, nil
@@ -58,7 +61,145 @@ func newSession() *session.Session {
 
 func Test_Cache(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		rw.Write([]byte(`<DescribeInstancesResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10 * time.Second)
+	AddCaching(s, cacheCfg)
+
+	svc := ec2.New(s)
+
+	for i := 1; i < 10; i++ {
+		descInstancesOutput, err := svc.DescribeInstances(
+			&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+		if err != nil {
+			t.Errorf("DescribeInstances returned an unexpected error %v", err)
+		}
+
+		if len(descInstancesOutput.Reservations) != 1 {
+			t.Errorf("DescribeInstances did not return 1 reservation")
+		}
+
+		if len(descInstancesOutput.Reservations[0].Instances) != 1 {
+			t.Errorf("DescribeInstances did not return 1 instance")
+		}
+
+		instanceId := "i-1234567890abcdef0"
+		if aws.StringValue(descInstancesOutput.Reservations[0].Instances[0].InstanceId) != instanceId {
+			t.Errorf("DescribeInstances returned InstanceId %v not %v",
+				aws.StringValue(descInstancesOutput.Reservations[0].Instances[0].InstanceId), instanceId)
+		}
+	}
+}
+
+var cacheHit = false
+
+func Test_CacheFlush(t *testing.T) {
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10 * time.Second)
+	AddCaching(s, cacheCfg)
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+		}
+	})
+
+	svc := ec2.New(s)
+
+	cacheHit = false
+	_, err := svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheCfg.FlushCache("ec2")
+	cacheHit = false
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+}
+
+func Test_AutoCacheFlush(t *testing.T) {
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10 * time.Second)
+	AddCaching(s, cacheCfg)
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
+			t.Errorf("%v expected cache hit %v, got %v", r.Operation.Name, IsCacheHit(r.HTTPRequest.Context()), cacheHit)
+		}
+	})
+
+	svc := ec2.New(s)
+
+	cacheHit = false
+	_, err := svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	// Make non Get/Describe/List query, should flush ec2 cache
+	cacheHit = false
+	_, err = svc.CreateKeyPair(&ec2.CreateKeyPairInput{KeyName: aws.String("name")})
+	if err != nil {
+		t.Errorf("CreateKeyPair returned an unexpected error %v", err)
+	}
+
+	cacheHit = false
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	// Make non Get/Describe/List query to non-ec2 service, should not flush ec2 cache
+	cacheHit = false
+	elbv2svc := elbv2.New(s)
+	_, err = elbv2svc.DeleteLoadBalancer(&elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String("arn")})
+	if err != nil {
+		t.Errorf("DeleteLoadBalancer returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+}
+
+var describeInstancesResponse = []byte(`<DescribeInstancesResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
     <requestId>8f7724cf-496f-496e-8fe3-example</requestId>
     <reservationSet>
         <item>
@@ -185,37 +326,4 @@ func Test_Cache(t *testing.T) {
             </instancesSet>
         </item>
     </reservationSet>
-</DescribeInstancesResponse>`))
-	}))
-	defer server.Close()
-
-	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second)
-	AddCaching(s, cacheCfg)
-
-	svc := ec2.New(s)
-
-	for i := 1; i < 10; i++ {
-		descInstancesOutput, err := svc.DescribeInstances(&ec2.DescribeInstancesInput{
-			InstanceIds: []*string{aws.String("i-0ace172143b1159d6")},
-		})
-		if err != nil {
-			t.Errorf("DescribeInstances returned an unexpected error %v", err)
-		}
-
-		if len(descInstancesOutput.Reservations) != 1 {
-			t.Errorf("DescribeInstances did not return 1 reservation")
-		}
-
-		if len(descInstancesOutput.Reservations[0].Instances) != 1 {
-			t.Errorf("DescribeInstances did not return 1 instance")
-		}
-
-		instanceId := "i-1234567890abcdef0"
-		if aws.StringValue(descInstancesOutput.Reservations[0].Instances[0].InstanceId) != instanceId {
-			t.Errorf("DescribeInstances returned InstanceId %v not %v",
-				aws.StringValue(descInstancesOutput.Reservations[0].Instances[0].InstanceId), instanceId)
-		}
-	}
-
-}
+</DescribeInstancesResponse>`)
