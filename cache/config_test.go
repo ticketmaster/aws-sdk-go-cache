@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+
 	"github.com/aws/aws-sdk-go/aws/request"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -44,6 +46,11 @@ var myCustomResolver = func(service, region string, optFns ...func(*endpoints.Op
 			URL: server.URL + "/ec2",
 		}, nil
 	}
+	if service == endpoints.TaggingServiceID {
+		return endpoints.ResolvedEndpoint{
+			URL: server.URL + "/tagging",
+		}, nil
+	}
 
 	return endpoints.DefaultResolver().EndpointFor(service, region, optFns...)
 }
@@ -57,6 +64,33 @@ func newSession() *session.Session {
 		Credentials:      credentials.NewStaticCredentials("AKID", "SECRET_KEY", "TOKEN"),
 	}))
 	return s
+}
+
+func Test_CachedError(t *testing.T) {
+	///ThrottledException: Rate exceeded
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(400)
+		rw.Write([]byte(`{ "code": "400", "message": "ThrottlingException"}`))
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10 * time.Second)
+	AddCaching(s, cacheCfg)
+
+	svc := resourcegroupstaggingapi.New(s)
+
+	for i := 1; i < 10; i++ {
+		req, _ := svc.GetResourcesRequest(&resourcegroupstaggingapi.GetResourcesInput{})
+		err := req.Send()
+
+		if err == nil {
+			t.Errorf("400 error not received")
+		}
+		if IsCacheHit(req.HTTPRequest.Context()) {
+			t.Errorf("400 error was received from cache")
+		}
+	}
 }
 
 func Test_Cache(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 type contextKeyType int
 
 var cacheHitContextKey = new(contextKeyType)
+var cacheObjectContextKey = new(contextKeyType)
 
 type cacheObj struct {
 	r       *http.Response
@@ -70,10 +71,20 @@ func AddCaching(s *session.Session, cacheConfig *Config) {
 			}
 			r.HTTPResponse.Body = ioutil.NopCloser(bytes.NewBuffer(content))
 
-			cacheConfig.set(r, &cacheObj{
+			r.HTTPRequest = r.HTTPRequest.WithContext(context.WithValue(r.HTTPRequest.Context(), cacheObjectContextKey, &cacheObj{
 				r:       r.HTTPResponse,
 				content: content,
-			})
+			}))
+
+		}
+	})
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if r.Error == nil {
+			o := r.HTTPRequest.Context().Value(cacheObjectContextKey)
+			if o != nil {
+				cacheConfig.set(r, o.(*cacheObj))
+			}
 		}
 	})
 }
