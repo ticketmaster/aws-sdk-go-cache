@@ -18,5 +18,5 @@ get-deps-verify:
 
 lint:
 	@echo "go lint SDK and vendor packages"
-	@gometalinter --disable-all --enable=gofmt --enable=golint --enable=vet --enable=gosimple --enable=unconvert --deadline=4m ${SDK_ONLY_PKGS}
+	@gometalinter --disable-all --enable=gofmt --enable=golint --enable=vet --enable=unconvert --deadline=4m ${SDK_ONLY_PKGS}
 	@$(PRINT_OK)
