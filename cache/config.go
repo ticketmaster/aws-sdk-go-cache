@@ -47,6 +47,9 @@ func (c *Config) FlushCache(serviceName string) {
 	c.caches.Range(func(k, v interface{}) bool {
 		cacheName := k.(string)
 		if strings.HasPrefix(cacheName, serviceName) {
+			o, _ := c.caches.Load(cacheName)
+			ccacheInstance := o.(*ccache.Cache)
+			ccacheInstance.Stop()
 			c.caches.Store(cacheName, ccache.New(ccache.Configure()))
 			n := strings.Split(cacheName, ".")
 			c.incFlush(n[0], n[1])
