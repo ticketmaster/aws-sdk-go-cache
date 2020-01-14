@@ -1,7 +1,7 @@
 module github.com/ticketmaster/aws-sdk-go-cache
 
 require (
-	github.com/aws/aws-sdk-go v1.16.35
+	github.com/aws/aws-sdk-go v1.27.3
 	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-ini/ini v1.25.4 // indirect
