@@ -1,4 +1,4 @@
-module aws-sdk-go-cache
+module github.com/keikoproj/aws-sdk-go-cache
 
 require (
 	github.com/aws/aws-sdk-go v1.27.3
