@@ -1,4 +1,4 @@
-module github.com/ticketmaster/aws-sdk-go-cache
+module aws-sdk-go-cache
 
 require (
 	github.com/aws/aws-sdk-go v1.27.3
