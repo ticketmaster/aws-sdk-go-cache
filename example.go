@@ -20,7 +20,7 @@ func main() {
 	s := session.Must(session.NewSession())
 
 	// Adds caching to session
-	cacheCfg := cache.NewConfig(0 * time.Second)
+	cacheCfg := cache.NewConfig(0 * time.Second, 5000, 500)
 	cache.AddCaching(s, cacheCfg)
 
 	reg := prometheus.NewRegistry()
