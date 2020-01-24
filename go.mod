@@ -4,7 +4,7 @@ require (
 	github.com/aws/aws-sdk-go v1.25.0
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/karlseguin/ccache v2.0.2+incompatible
+	github.com/karlseguin/ccache v2.0.3+incompatible
 	github.com/karlseguin/expect v1.0.1 // indirect
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.9.1 // indirect
