@@ -75,7 +75,7 @@ func Test_CachedError(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := resourcegroupstaggingapi.New(s)
@@ -100,7 +100,7 @@ func Test_Cache(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := ec2.New(s)
@@ -137,7 +137,7 @@ func Test_CacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
@@ -178,7 +178,7 @@ func Test_FlushOperationCache(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
@@ -289,7 +289,7 @@ func Test_FlushSkipExcluded(t *testing.T) {
 }
 
 func Test_IsMutating(t *testing.T) {
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 
 	if !cacheCfg.isMutating("ec2", "TerminateInstances") {
 		t.Errorf("expected TerminateInstances to be mutating")
@@ -323,7 +323,7 @@ func Test_AutoCacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {

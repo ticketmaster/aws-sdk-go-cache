@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 
-	"github.com/ticketmaster/aws-sdk-go-cache/cache"
+	"github.com/keikoproj/aws-sdk-go-cache/cache"
 )
 
 const pageSize = 10
@@ -20,7 +20,7 @@ func main() {
 	s := session.Must(session.NewSession())
 
 	// Adds caching to session
-	cacheCfg := cache.NewConfig(0 * time.Second)
+	cacheCfg := cache.NewConfig(0 * time.Second, 5000, 500)
 	cache.AddCaching(s, cacheCfg)
 
 	reg := prometheus.NewRegistry()

@@ -29,7 +29,13 @@ type Config struct {
 const cacheNameFormat = "%v.%v"
 
 // NewConfig returns a cache configuration with the defaultTTL
-func NewConfig(defaultTTL time.Duration) *Config {
+func NewConfig(defaultTTL time.Duration, maxSize int64, itemsToPrune uint32) *Config {
+	if maxSize == 0 {
+		maxSize = 5000
+	}
+	if itemsToPrune == 0 {
+		itemsToPrune = 500
+	}
 	return &Config{
 		DefaultTTL:     defaultTTL,
 		specificTTL:    make(map[string]time.Duration),
@@ -74,7 +80,7 @@ func (c *Config) FlushCache(serviceName string) {
 			c.Lock()
 			o, _ := c.caches.Load(cacheName)
 			ccacheInstance := o.(*ccache.Cache)
-			c.caches.Store(cacheName, ccache.New(ccache.Configure()))
+			c.caches.Store(cacheName, ccache.New(ccache.Configure().MaxSize(c.maxSize).ItemsToPrune(c.itemsToPrune)))
 			ccacheInstance.Stop()
 			c.Unlock()
 			n := strings.Split(cacheName, ".")
@@ -105,12 +111,17 @@ func (c *Config) FlushOperationCache(serviceName, operationName string) {
 
 func (c *Config) flushCaches(r *request.Request) {
 	opName := r.Operation.Name
+	serviceName := r.ClientInfo.ServiceName
 
 	if isCachable(opName) {
 		return
 	}
 
-	c.FlushCache(r.ClientInfo.ServiceName)
+	if c.isMutating(serviceName, opName) {
+		c.FlushCache(serviceName)
+	} else {
+		c.FlushOperationCache(serviceName, opName)
+	}
 
 	if strings.Contains(opName, "Tags") {
 		c.FlushCache(resourcegroupstaggingapi.ServiceName)
@@ -120,7 +131,7 @@ func (c *Config) flushCaches(r *request.Request) {
 func (c *Config) getCache(r *request.Request) *ccache.Cache {
 	_, ok := c.caches.Load(cacheName(r))
 	if !ok {
-		cache := ccache.New(ccache.Configure())
+		cache := ccache.New(ccache.Configure().MaxSize(c.maxSize).ItemsToPrune(c.itemsToPrune))
 		c.caches.Store(cacheName(r), cache)
 	}
 	o, _ := c.caches.Load(cacheName(r))
