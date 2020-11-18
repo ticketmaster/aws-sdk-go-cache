@@ -75,7 +75,7 @@ func Test_CachedError(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second)
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := resourcegroupstaggingapi.New(s)
@@ -100,7 +100,7 @@ func Test_Cache(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second)
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := ec2.New(s)
@@ -137,7 +137,7 @@ func Test_CacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second)
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
@@ -171,6 +171,151 @@ func Test_CacheFlush(t *testing.T) {
 	}
 }
 
+func Test_FlushOperationCache(t *testing.T) {
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	AddCaching(s, cacheCfg)
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+		}
+	})
+
+	svc := ec2.New(s)
+
+	cacheHit = false
+	_, err := svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = false
+	_, err = svc.DescribeVolumes(&ec2.DescribeVolumesInput{})
+	if err != nil {
+		t.Errorf("DescribeTags returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheCfg.FlushOperationCache("ec2", "DescribeInstances")
+	cacheHit = false
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeVolumes(&ec2.DescribeVolumesInput{})
+	if err != nil {
+		t.Errorf("DescribeTags returned an unexpected error %v", err)
+	}
+}
+
+func Test_FlushSkipExcluded(t *testing.T) {
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(10*time.Millisecond, 5000, 500)
+	cacheCfg.SetExcludeFlushing("ec2", "DescribeInstances", true)
+	AddCaching(s, cacheCfg)
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+		}
+	})
+
+	svc := ec2.New(s)
+
+	cacheHit = false
+	_, err := svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = false
+	_, err = svc.DescribeVolumes(&ec2.DescribeVolumesInput{})
+	if err != nil {
+		t.Errorf("DescribeTags returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheCfg.FlushOperationCache("ec2", "DescribeInstances")
+	cacheCfg.FlushCache("ec2")
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = false
+	_, err = svc.DescribeVolumes(&ec2.DescribeVolumesInput{})
+	if err != nil {
+		t.Errorf("DescribeTags returned an unexpected error %v", err)
+	}
+
+	cacheHit = false
+	time.Sleep(time.Millisecond * 11)
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+}
+
+func Test_IsMutating(t *testing.T) {
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+
+	if !cacheCfg.isMutating("ec2", "TerminateInstances") {
+		t.Errorf("expected TerminateInstances to be mutating")
+	}
+
+	cacheCfg.SetCacheMutating("ec2", "TerminateInstances", false)
+
+	if cacheCfg.isMutating("ec2", "TerminateInstances") {
+		t.Errorf("expected TerminateInstances to be non-mutating")
+	}
+}
+
+func Test_IsExcluded(t *testing.T) {
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+
+	if cacheCfg.isExcluded("ec2.DescribeInstanceTypes") {
+		t.Errorf("expected TerminateInstances to not be excluded")
+	}
+
+	cacheCfg.SetExcludeFlushing("ec2", "DescribeInstanceTypes", true)
+
+	if !cacheCfg.isExcluded("ec2.DescribeInstanceTypes") {
+		t.Errorf("expected TerminateInstances to be excluded")
+	}
+}
+
 func Test_AutoCacheFlush(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.Write(describeInstancesResponse)
@@ -178,7 +323,7 @@ func Test_AutoCacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second)
+	cacheCfg := NewConfig(10*time.Second, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {

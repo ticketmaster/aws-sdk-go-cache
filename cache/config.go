@@ -15,11 +15,15 @@ import (
 )
 
 type Config struct {
-	DefaultTTL  time.Duration
-	specificTTL map[string]time.Duration
+	DefaultTTL     time.Duration
+	specificTTL    map[string]time.Duration
+	mutatingCaches map[string]bool
+	excludedCaches map[string]bool
 	sync.RWMutex
-	caches  *sync.Map
-	metrics *cacheCollector
+	caches       *sync.Map
+	metrics      *cacheCollector
+	maxSize      int64
+	itemsToPrune uint32
 }
 
 const cacheNameFormat = "%v.%v"
@@ -27,9 +31,13 @@ const cacheNameFormat = "%v.%v"
 // NewConfig returns a cache configuration with the defaultTTL
 func NewConfig(defaultTTL time.Duration) *Config {
 	return &Config{
-		DefaultTTL:  defaultTTL,
-		specificTTL: make(map[string]time.Duration),
-		caches:      &sync.Map{},
+		DefaultTTL:     defaultTTL,
+		specificTTL:    make(map[string]time.Duration),
+		mutatingCaches: make(map[string]bool),
+		excludedCaches: make(map[string]bool),
+		caches:         &sync.Map{},
+		maxSize:        maxSize,
+		itemsToPrune:   itemsToPrune,
 	}
 }
 
@@ -43,11 +51,26 @@ func (c *Config) SetCacheTTL(serviceName, operationName string, ttl time.Duratio
 	c.specificTTL[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = ttl
 }
 
+// SetCacheMutating sets a specific operation to mutating/non-mutating
+func (c *Config) SetCacheMutating(serviceName, operationName string, isMutating bool) {
+	c.mutatingCaches[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = isMutating
+}
+
+// SetExcludeFlushing sets a specific operation to never flush on mutation, only TTL
+func (c *Config) SetExcludeFlushing(serviceName, operationName string, isExcluded bool) {
+	c.excludedCaches[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = isExcluded
+}
+
 // FlushCache flushes all caches for a service
 func (c *Config) FlushCache(serviceName string) {
 	c.caches.Range(func(k, v interface{}) bool {
 		cacheName := k.(string)
+		if c.isExcluded(cacheName) {
+			// skip flushing if excluded
+			return true
+		}
 		if strings.HasPrefix(cacheName, serviceName) {
+
 			c.Lock()
 			o, _ := c.caches.Load(cacheName)
 			ccacheInstance := o.(*ccache.Cache)
@@ -56,6 +79,25 @@ func (c *Config) FlushCache(serviceName string) {
 			c.Unlock()
 			n := strings.Split(cacheName, ".")
 			c.incFlush(n[0], n[1])
+		}
+		return true
+	})
+}
+
+func (c *Config) FlushOperationCache(serviceName, operationName string) {
+	c.caches.Range(func(k, v interface{}) bool {
+		cacheName := k.(string)
+		if c.isExcluded(cacheName) {
+			// skip flushing if excluded
+			return true
+		}
+		if cacheName == fmt.Sprintf(cacheNameFormat, serviceName, operationName) {
+			c.Lock()
+			o, _ := c.caches.Load(cacheName)
+			ccacheInstance := o.(*ccache.Cache)
+			c.caches.Store(cacheName, ccache.New(ccache.Configure().MaxSize(c.maxSize).ItemsToPrune(c.itemsToPrune)))
+			ccacheInstance.Stop()
+			c.Unlock()
 		}
 		return true
 	})
@@ -106,6 +148,21 @@ func (c *Config) set(r *request.Request, object interface{}) {
 	}
 
 	c.getCache(r).Set(cacheKey(r), object, ttl)
+}
+
+func (c *Config) isMutating(serviceName, operationName string) bool {
+	// assume cache is mutating by default
+	if val, ok := c.mutatingCaches[fmt.Sprintf(cacheNameFormat, serviceName, operationName)]; ok {
+		return val
+	}
+	return true
+}
+
+func (c *Config) isExcluded(cacheName string) bool {
+	if val, ok := c.excludedCaches[cacheName]; ok {
+		return val
+	}
+	return false
 }
 
 func cacheName(r *request.Request) string {
