@@ -18,10 +18,11 @@ type Config struct {
 	DefaultTTL     time.Duration
 	specificTTL    map[string]time.Duration
 	mutatingCaches map[string]bool
+	excludedCaches map[string]bool
 	sync.RWMutex
-	caches  *sync.Map
-	metrics *cacheCollector
-	maxSize int64
+	caches       *sync.Map
+	metrics      *cacheCollector
+	maxSize      int64
 	itemsToPrune uint32
 }
 
@@ -39,9 +40,10 @@ func NewConfig(defaultTTL time.Duration, maxSize int64, itemsToPrune uint32) *Co
 		DefaultTTL:     defaultTTL,
 		specificTTL:    make(map[string]time.Duration),
 		mutatingCaches: make(map[string]bool),
+		excludedCaches: make(map[string]bool),
 		caches:         &sync.Map{},
-		maxSize: maxSize,
-		itemsToPrune: itemsToPrune,
+		maxSize:        maxSize,
+		itemsToPrune:   itemsToPrune,
 	}
 }
 
@@ -60,11 +62,21 @@ func (c *Config) SetCacheMutating(serviceName, operationName string, isMutating 
 	c.mutatingCaches[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = isMutating
 }
 
+// SetExcludeFlushing sets a specific operation to never flush on mutation, only TTL
+func (c *Config) SetExcludeFlushing(serviceName, operationName string, isExcluded bool) {
+	c.excludedCaches[fmt.Sprintf(cacheNameFormat, serviceName, operationName)] = isExcluded
+}
+
 // FlushCache flushes all caches for a service
 func (c *Config) FlushCache(serviceName string) {
 	c.caches.Range(func(k, v interface{}) bool {
 		cacheName := k.(string)
+		if c.isExcluded(cacheName) {
+			// skip flushing if excluded
+			return true
+		}
 		if strings.HasPrefix(cacheName, serviceName) {
+
 			c.Lock()
 			o, _ := c.caches.Load(cacheName)
 			ccacheInstance := o.(*ccache.Cache)
@@ -81,6 +93,10 @@ func (c *Config) FlushCache(serviceName string) {
 func (c *Config) FlushOperationCache(serviceName, operationName string) {
 	c.caches.Range(func(k, v interface{}) bool {
 		cacheName := k.(string)
+		if c.isExcluded(cacheName) {
+			// skip flushing if excluded
+			return true
+		}
 		if cacheName == fmt.Sprintf(cacheNameFormat, serviceName, operationName) {
 			c.Lock()
 			o, _ := c.caches.Load(cacheName)
@@ -151,6 +167,13 @@ func (c *Config) isMutating(serviceName, operationName string) bool {
 		return val
 	}
 	return true
+}
+
+func (c *Config) isExcluded(cacheName string) bool {
+	if val, ok := c.excludedCaches[cacheName]; ok {
+		return val
+	}
+	return false
 }
 
 func cacheName(r *request.Request) string {
