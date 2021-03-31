@@ -11,14 +11,15 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/awsutil"
 	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/karlseguin/ccache"
+	"github.com/karlseguin/ccache/v2"
 )
 
 type Config struct {
-	DefaultTTL     time.Duration
-	specificTTL    map[string]time.Duration
-	mutatingCaches map[string]bool
-	excludedCaches map[string]bool
+	DefaultTTL                time.Duration
+	BackgroundPruningInterval time.Duration
+	specificTTL               map[string]time.Duration
+	mutatingCaches            map[string]bool
+	excludedCaches            map[string]bool
 	sync.RWMutex
 	caches       *sync.Map
 	metrics      *cacheCollector
@@ -29,22 +30,29 @@ type Config struct {
 const cacheNameFormat = "%v.%v"
 
 // NewConfig returns a cache configuration with the defaultTTL
-func NewConfig(defaultTTL time.Duration, maxSize int64, itemsToPrune uint32) *Config {
+func NewConfig(defaultTTL, backgroundPruning time.Duration, maxSize int64, itemsToPrune uint32) *Config {
 	if maxSize == 0 {
 		maxSize = 5000
 	}
 	if itemsToPrune == 0 {
 		itemsToPrune = 500
 	}
-	return &Config{
-		DefaultTTL:     defaultTTL,
-		specificTTL:    make(map[string]time.Duration),
-		mutatingCaches: make(map[string]bool),
-		excludedCaches: make(map[string]bool),
-		caches:         &sync.Map{},
-		maxSize:        maxSize,
-		itemsToPrune:   itemsToPrune,
+
+	config := &Config{
+		BackgroundPruningInterval: backgroundPruning,
+		DefaultTTL:                defaultTTL,
+		specificTTL:               make(map[string]time.Duration),
+		mutatingCaches:            make(map[string]bool),
+		excludedCaches:            make(map[string]bool),
+		caches:                    &sync.Map{},
+		maxSize:                   maxSize,
+		itemsToPrune:              itemsToPrune,
 	}
+
+	// start goroutine to prune TTL expired items every BackgroundFlushingInterval
+	go config.backgroundPruneExpired()
+
+	return config
 }
 
 func (c *Config) NewCacheCollector(namespace string) prometheus.Collector {
@@ -208,5 +216,18 @@ func (c *Config) incMiss(r *request.Request) {
 func (c *Config) incFlush(serviceName, operationName string) {
 	if c.metrics != nil {
 		c.metrics.incFlush(serviceName, operationName)
+	}
+}
+
+func (c *Config) backgroundPruneExpired() {
+	for {
+		time.Sleep(c.BackgroundPruningInterval)
+		c.caches.Range(func(k, v interface{}) bool {
+			cache := v.(*ccache.Cache)
+			cache.DeleteFunc(func(kx string, vx *ccache.Item) bool {
+				return vx.Expired()
+			})
+			return true
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	"github.com/karlseguin/ccache/v2"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 
@@ -75,7 +76,7 @@ func Test_CachedError(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := resourcegroupstaggingapi.New(s)
@@ -100,7 +101,7 @@ func Test_Cache(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	svc := ec2.New(s)
@@ -137,12 +138,12 @@ func Test_CacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -171,6 +172,58 @@ func Test_CacheFlush(t *testing.T) {
 	}
 }
 
+func Test_BackgroundTTLPruning(t *testing.T) {
+	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		rw.Write(describeInstancesResponse)
+	}))
+	defer server.Close()
+
+	s := newSession()
+	cacheCfg := NewConfig(400*time.Millisecond, 500*time.Millisecond, 5000, 500)
+	AddCaching(s, cacheCfg)
+
+	s.Handlers.Complete.PushBack(func(r *request.Request) {
+		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
+		}
+	})
+
+	svc := ec2.New(s)
+
+	cacheHit = false
+	_, err := svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	cacheHit = true
+	_, err = svc.DescribeInstances(
+		&ec2.DescribeInstancesInput{InstanceIds: []*string{aws.String("i-0ace172143b1159d6")}})
+	if err != nil {
+		t.Errorf("DescribeInstances returned an unexpected error %v", err)
+	}
+
+	c, ok := cacheCfg.caches.Load("ec2.DescribeInstances")
+	if !ok {
+		t.Errorf("DescribeInstances cache not found: %v", err)
+	}
+
+	cObj := c.(*ccache.Cache)
+
+	// TTL expired - should have 1 item in cache
+	time.Sleep(401 * time.Millisecond)
+	if cObj.ItemCount() < 1 {
+		t.Error("DescribeInstances cache had 0 items")
+	}
+
+	// Background pruning done - should have 0 items in cache
+	time.Sleep(100 * time.Millisecond)
+	if cObj.ItemCount() > 0 {
+		t.Error("DescribeInstances cache had more than 0 items")
+	}
+}
+
 func Test_FlushOperationCache(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		rw.Write(describeInstancesResponse)
@@ -178,12 +231,12 @@ func Test_FlushOperationCache(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -231,13 +284,13 @@ func Test_FlushSkipExcluded(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Millisecond, 5000, 500)
+	cacheCfg := NewConfig(10*time.Millisecond, 1*time.Hour, 5000, 500)
 	cacheCfg.SetExcludeFlushing("ec2", "DescribeInstances", true)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -289,7 +342,7 @@ func Test_FlushSkipExcluded(t *testing.T) {
 }
 
 func Test_IsMutating(t *testing.T) {
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 
 	if !cacheCfg.isMutating("ec2", "TerminateInstances") {
 		t.Errorf("expected TerminateInstances to be mutating")
@@ -303,7 +356,7 @@ func Test_IsMutating(t *testing.T) {
 }
 
 func Test_IsExcluded(t *testing.T) {
-	cacheCfg := NewConfig(10*time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 
 	if cacheCfg.isExcluded("ec2.DescribeInstanceTypes") {
 		t.Errorf("expected TerminateInstances to not be excluded")
@@ -323,7 +376,7 @@ func Test_AutoCacheFlush(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10 * time.Second, 5000, 500)
+	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
