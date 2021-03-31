@@ -6,9 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karlseguin/ccache/v2"
-
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	"github.com/karlseguin/ccache/v2"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 
@@ -144,7 +143,7 @@ func Test_CacheFlush(t *testing.T) {
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -185,7 +184,7 @@ func Test_BackgroundTTLPruning(t *testing.T) {
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -237,7 +236,7 @@ func Test_FlushOperationCache(t *testing.T) {
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
@@ -285,13 +284,13 @@ func Test_FlushSkipExcluded(t *testing.T) {
 	defer server.Close()
 
 	s := newSession()
-	cacheCfg := NewConfig(10*time.Second, 1*time.Hour, 5000, 500)
+	cacheCfg := NewConfig(10*time.Millisecond, 1*time.Hour, 5000, 500)
 	cacheCfg.SetExcludeFlushing("ec2", "DescribeInstances", true)
 	AddCaching(s, cacheCfg)
 
 	s.Handlers.Complete.PushBack(func(r *request.Request) {
 		if IsCacheHit(r.HTTPRequest.Context()) != cacheHit {
-			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.Context()), cacheHit)
+			t.Errorf("DescribeInstances expected cache hit %v, got %v", IsCacheHit(r.HTTPRequest.Context()), cacheHit)
 		}
 	})
 
