@@ -10,4 +10,4 @@ require (
 	github.com/prometheus/procfs v0.0.8 // indirect
 )
 
-go 1.13
+go 1.19
