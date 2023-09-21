@@ -9,6 +9,9 @@ This package provides a caching layer for the AWS SDK for Go. It is designed to 
 
 
 <!-- Markdown link -->
+[GoReportImg]: https://goreportcard.com/badge/github.com/keikoproj/aws-sdk-go-cache
+[GoReportUrl]: https://goreportcard.com/report/github.com/keikoproj/aws-sdk-go-cache
+
 [BuildStatusImg]: https://github.com/keikoproj/aws-sdk-go-cache/actions/workflows/unit-test.yml/badge.svg?branch=master
 [BuildMasterUrl]: https://github.com/keikoproj/aws-sdk-go-cache/actions/workflows/unit-test.yml
 
